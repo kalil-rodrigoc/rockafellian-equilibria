@@ -13,30 +13,15 @@ class Utility():
     pass
 
 class Problem():
-    def __init__(self, goods: int, agents: int):
+    def __init__(self, goods: int, agents: int, args: list[list]):
         """
         Init the Problem instance with standard utilities and similar
         intervals for all allocations.
         """
         self.goods = goods
         self.agents = agents
-        lb = self.agents*self.goods*[0]
-        ub = self.agents*self.goods*[self.agents]
-        self.survival_bounds = Bounds(lb, ub)
-        matrix = self.goods*[self.agents*[1]]
-        matrix = np.zeros((self.goods, self.agents*self.goods))
-        for l in range(self.goods):
-            matrix[l][l::self.agents] = 1
-        lb = self.goods*[self.agents]
-        ub = self.goods*[self.agents]
-        linear_constraint = LinearConstraint(matrix, lb, ub)
-        print(matrix, lb, ub)
-        self.constraints = []
-        self.constraints.append(linear_constraint)
-        self.endowments = np.ones(self.agents*self.goods)
-        # self.args = self.agents*[self.goods*[0.5]]
-        self.args = [[0.5, -0.5], [-0.5, 0.5]]
-        self.objective = self.sum_linear
+        self.args = args
+        self.objective = self.sum_non_linear
 
     def sum_linear(self, endowments, coeficients):
         total = 0
@@ -44,7 +29,13 @@ class Problem():
             total += sum([endowments[min((i-1)*self.goods, 0) + j] * coeficients[i][j] for j in range(self.goods)])
         return -total
 
-    def set_parameters(self, survival, endowment):
+    def sum_non_linear(self, endowments, coeficients):
+        total = 0
+        for i in range(self.agents):
+            total += sum([endowments[min((i-1)*self.goods, 0) + j] ** coeficients[i][j][1] * coeficients[i][j][0] for j in range(self.goods)])
+        return -total
+
+    def set_variables(self, survival_floor, satiation_ceiling, endowments):
         """
         Asserts the dimentions of survival and endowment matrices 
         match. Verify the correspondent I and L (number of agents and
@@ -52,7 +43,21 @@ class Problem():
 
 
         """
-        self.survival_bounds = Bounds()
+        self.survival_bounds = Bounds(survival_floor, satiation_ceiling)
+        self.endowments = endowments
+
+    def add_linear_constraints(self):
+        
+        matrix = self.goods*[self.agents*[1]]
+        matrix = np.zeros((self.goods, self.agents*self.goods))
+        for l in range(self.goods):
+            matrix[l][l::self.agents] = 1
+        lb = self.goods*[self.agents]
+        ub = self.goods*[self.agents]
+        linear_constraint = LinearConstraint(matrix, lb, ub)
+        
+        self.constraints = []
+        self.constraints.append(linear_constraint)
 
     def _set_utilities(self, utilities):
         """
@@ -71,6 +76,7 @@ class Problem():
                        method = "trust-constr", bounds = self.survival_bounds,
                        constraints = self.constraints)
         print(res.x)
+        print(res.)
 
     def add_relaxation(self):
         pass
@@ -89,5 +95,13 @@ if __name__ == "__main__":
     # print(f"Second bound: {second_b}")
     # print(f"Third bound: {third_b}")
 
-    problem = Problem(2, 2)
+    args0 = [[0.5, -0.5], [-0.5, 0.5]]
+    # Each list carries [multiplier, exponent]
+    args = [[[1, 1], [-1/8, -8]], [[-1/8, -8], [1, 1]]]
+    problem = Problem(2, 2, args)
+    survival_floor = 2*2*[0.3]
+    satiation_ceiling = 2*2*[3]
+    endowments = [0.5, 0.05, 0.05, 0.5]
+    problem.set_variables(survival_floor, satiation_ceiling, endowments)
+    problem.add_linear_constraints()
     problem.solve_problem()
