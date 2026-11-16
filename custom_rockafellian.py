@@ -82,10 +82,42 @@ class Problem():
         print(self.objective(res.x, self.args, True))
 
     def add_relaxation(self):
-        pass
+        matrix = np.zeros((self.goods, self.agents*self.goods))
+        for l in range(self.goods):
+            matrix[l][l::self.agents] = 1
+        amount = self.goods*[0]
+        for l in range(self.goods):
+            amount[l] = sum(self.endowments[l::self.goods])
+        lb = amount
+        ub = amount
+        linear_constraint = LinearConstraint(matrix, lb, ub)
+        
+        self.relaxed_constraints = []
+        self.relaxed_constraints.append(linear_constraint)
 
-    def solve_relaxations(self):
-        pass
+    def solve_relaxations(self, endowments, coeficients, verbose = False):
+        matrix = np.zeros((self.goods, self.agents*self.goods))
+        for l in range(self.goods):
+            matrix[l][l::self.agents] = 1
+        amount = self.goods*[0]
+        for l in range(self.goods):
+            amount[l] = sum(endowments[l::self.goods])
+        amount = np.array(amount)
+
+        account = matrix @ amount
+        account = sum(account)
+        if account <= self.v:
+            
+
+        total = 0
+        for i in range(self.agents):
+            partial = [(coeficients[i][j][0] * endowments[min((i-1)*self.goods, 0) + j] ** coeficients[i][j][1]) for j in range(self.goods)]
+            utility = sum(partial)
+            total += utility
+            if verbose:
+                print(f"For agent {i}, utility was {utility}\n Partials were {partial}")
+
+        return -total
 
 if __name__ == "__main__":
     print("Starting script")
