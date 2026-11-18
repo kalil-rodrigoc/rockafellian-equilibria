@@ -43,6 +43,8 @@ class Problem():
 
 
         """
+        self.survival_floor = survival_floor
+        self.satiation_ceiling = satiation_ceiling
         self.survival_bounds = Bounds(survival_floor, satiation_ceiling)
         self.endowments = endowments
 
@@ -81,33 +83,38 @@ class Problem():
         print(res.success, res.message)
         print(self.objective(res.x, self.args, True))
 
-    def add_relaxation(self):
-        matrix = np.zeros((self.goods, self.agents*self.goods))
-        for l in range(self.goods):
-            matrix[l][l::self.agents] = 1
-        amount = self.goods*[0]
-        for l in range(self.goods):
-            amount[l] = sum(self.endowments[l::self.goods])
-        lb = amount
-        ub = amount
-        linear_constraint = LinearConstraint(matrix, lb, ub)
+    # def add_relaxation(self):
+    #     matrix = np.zeros((self.goods, self.agents*self.goods))
+    #     for l in range(self.goods):
+    #         matrix[l][l::self.agents] = 1
+    #     amount = self.goods*[0]
+    #     for l in range(self.goods):
+    #         amount[l] = sum(self.endowments[l::self.goods])
+    #     lb = amount
+    #     ub = amount
+    #     print(matrix)
+    #     print(amount)
+    #     linear_constraint = LinearConstraint(matrix, lb, ub)
         
-        self.relaxed_constraints = []
-        self.relaxed_constraints.append(linear_constraint)
+    #     self.relaxed_constraints = []
+    #     self.relaxed_constraints.append(linear_constraint)
 
-    def solve_relaxations(self, endowments, coeficients, verbose = False):
-        matrix = np.zeros((self.goods, self.agents*self.goods))
-        for l in range(self.goods):
-            matrix[l][l::self.agents] = 1
-        amount = self.goods*[0]
-        for l in range(self.goods):
-            amount[l] = sum(endowments[l::self.goods])
-        amount = np.array(amount)
+    def solve_relaxation(self, endowments, coeficients, survival_floor, penalty, verbose = False):
+        # matrix = np.zeros((self.goods, self.agents*self.goods))
+        # for l in range(self.goods):
+        #     matrix[l][l::self.agents] = 1
+        # amount = self.goods*[0]
+        # for l in range(self.goods):
+        #     amount[l] = sum(endowments[l::self.goods])
+        # amount = np.array(amount)
 
-        account = matrix @ amount
-        account = sum(account)
-        if account <= self.v:
-            
+        # account = matrix @ amount
+        # account = sum(account)
+        # if account <= self.v:
+        #     pass
+
+        v = np.linalg.norm(endowments - survival_floor)
+        total_penalty = (penalty/2)*v
 
         total = 0
         for i in range(self.agents):
@@ -116,24 +123,59 @@ class Problem():
             total += utility
             if verbose:
                 print(f"For agent {i}, utility was {utility}\n Partials were {partial}")
+        if verbose:
+            print(f"Total penalty was {total_penalty}")
 
-        return -total
+        return -total + total_penalty
+
+    def run_relaxation(self):
+        self.lambdas = np.logspace(0, 7, 36)
+        iteration = 0
+        tol = 10**(-7)
+        not_stationary = True
+        self.objective = self.solve_relaxation
+
+        def get_z(x):
+            return sum(x - self.survival_floor)
+        
+        res_trajectory = []
+        v_trajectory = []
+        while not_stationary:
+            self.relaxation_args = (self.args, self.survival_floor, self.lambdas[iteration])
+            res = minimize(self.objective, self.endowments, args = self.relaxation_args,
+                            method = "trust-constr", bounds = self.survival_bounds)
+
+            v_trajectory.append(get_z(res.x))
+            
+            if iteration > 0:
+                advance = np.linalg.norm(res.x - res_trajectory[-1].x)
+                if advance < tol:
+                    not_stationary = False
+            res_trajectory.append(res)
+            iteration += 1
+            if iteration >= 36:
+                not_stationary = False
+
+        print("Optimal x: ", res.x)
+        print(res.success, res.message)
+        print(self.objective(res.x, self.args, self.survival_floor, self.relaxation_args[-1], True))
+
+        self.result = {"res_trajectory": res_trajectory,
+                       "lambdas": self.lambdas,
+                       "iterations": iteration,
+                       "diff": advance,
+                       "v_trajectory": v_trajectory}
+
+        
+            
+
 
 if __name__ == "__main__":
     print("Starting script")
 
-    """ TESTANDO CLASSE BOUNDS
-    first_b = Bounds(0,0.1)
-    second_b = Bounds([1, 2], [4, 3.5])
-    third_b = Bounds(3*[2, 1.5])
-
-    print(f"First bound: {first_b}")
-    print(f"Second bound: {second_b}")
-    print(f"Third bound: {third_b}")"""
-
     args0 = [[0.5, -0.5], [-0.5, 0.5]]
     # Each list carries [multiplier, exponent]
-    args = [[[1, 1], [-1/8, -8]], [[-1/8, -8], [1, 1]]]
+    args = ([[[1, 1], [-1/8, -8]], [[-1/8, -8], [1, 1]]])
     problem = Problem(2, 2, args)
     survival_floor = 2*2*[3]
     satiation_ceiling = 2*2*[30]
@@ -145,7 +187,12 @@ if __name__ == "__main__":
     problem.solve_problem()
 
     """ Reaching unfeasability due to initial endowments """
-    endowments = [0.5, 0.05, 0.05, 0.5]
+    endowments = [5, 0.5, 0.5, 5]
     problem.set_variables(survival_floor, satiation_ceiling, endowments)
     problem.add_linear_constraints()
     problem.solve_problem()
+
+    """ Finding v for increasing penalty weigths """
+    problem.run_relaxation()
+    result = problem.result
+    print(f"Em {result["iterations"]}, {result["v_trajectory"][-1]} was obtained.")
