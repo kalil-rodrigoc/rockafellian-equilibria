@@ -58,7 +58,7 @@ class WalrasianProblem():
         """
         total = 0
         for i in range(self.agents):
-            total += sum([endowments[min((i-1)*self.goods, 0) + j] * coeficients[i][j] for j in range(self.goods)])
+            total += sum([endowments[i*self.goods + j] * coeficients[i][j] for j in range(self.goods)])
         return -total
 
     def sum_non_linear(self, endowments, coeficients, verbose = False):
@@ -81,7 +81,7 @@ class WalrasianProblem():
         """
         total = 0
         for i in range(self.agents):
-            partial = [(coeficients[i][j][0] * endowments[min((i-1)*self.goods, 0) + j] ** coeficients[i][j][1]) for j in range(self.goods)]
+            partial = [(coeficients[i][j][0] * endowments[i*self.goods + j] ** coeficients[i][j][1]) for j in range(self.goods)]
             utility = sum(partial)
             total += utility
             if verbose:
@@ -142,11 +142,11 @@ class WalrasianProblem():
         
         matrix = np.zeros((self.goods, self.agents*self.goods))
         for l in range(self.goods):
-            matrix[l][l::self.agents] = 1
+            matrix[l][l::self.goods] = 1
         amount = self.goods*[0]
         for l in range(self.goods):
             amount[l] = sum(self.endowments[l::self.goods])
-        lb = amount
+        lb = [-np.inf] * self.goods
         ub = amount
         linear_constraint = LinearConstraint(matrix, lb, ub)
         
@@ -173,7 +173,7 @@ class WalrasianProblem():
         print(self.objective(res.x, self.args, True))
         return res
 
-    def sum_non_linear_penalized(self, endowments, coeficients, survival_floor, penalty, verbose = False):
+    def sum_non_linear_penalized(self, endowments, coeficients, initial_endowment, penalty, verbose = False):
         """Calculate negative nonlinear utility plus a quadratic-style penalty.
 
         Parameters
@@ -182,7 +182,7 @@ class WalrasianProblem():
             Flattened allocation vector for all agents.
         coeficients : array-like
             Utility coefficients and exponents for each agent and good.
-        survival_floor : array-like
+        initial_endowment : array-like
             Reference lower-bound vector used to measure constraint violation.
         penalty : float
             Nonnegative penalty weight applied to the distance from the floor.
@@ -194,13 +194,12 @@ class WalrasianProblem():
         float
             Negative aggregate utility plus the penalization term.
         """
-        
-        v = np.linalg.norm(endowments - survival_floor)
+        v = np.sum(np.maximum(sum(endowments - initial_endowment), 0)**2)
         total_penalty = (penalty/2)*v
 
         total = 0
         for i in range(self.agents):
-            partial = [(coeficients[i][j][0] * endowments[min((i-1)*self.goods, 0) + j] ** coeficients[i][j][1]) for j in range(self.goods)]
+            partial = [(coeficients[i][j][0] * endowments[i*self.goods + j] ** coeficients[i][j][1]) for j in range(self.goods)]
             utility = sum(partial)
             total += utility
             if verbose:
@@ -230,20 +229,22 @@ class WalrasianProblem():
         iteration = 0
         tol = 10**(-7)
         not_stationary = True
-        self.objective = self.sum_non_linear_penalized
+        self.relaxed_objective = self.sum_non_linear_penalized
 
         def get_v(x):
-            return sum(x - self.endowments)
+            v = np.sum(np.maximum(sum(x - self.endowments), 0)**2)
+            return v
         
         res_trajectory = []
         v_trajectory = []
+        initial_x = self.endowments
         while not_stationary:
-            self.relaxation_args = (self.args, self.survival_floor, self.lambdas[iteration])
-            res = minimize(self.objective, self.endowments, args = self.relaxation_args,
+            self.relaxation_args = (self.args, self.endowments, self.lambdas[iteration])
+            res = minimize(self.relaxed_objective, initial_x, args = self.relaxation_args,
                             method = "trust-constr", bounds = self.survival_bounds)
 
             v_trajectory.append(get_v(res.x))
-            
+            initial_x = res.x
             if iteration > 0:
                 advance = np.linalg.norm(res.x - res_trajectory[-1].x)
                 if advance < tol:
@@ -255,7 +256,7 @@ class WalrasianProblem():
 
         print("Optimal x: ", res.x)
         print(res.success, res.message)
-        print(self.objective(res.x, self.args, self.survival_floor, self.relaxation_args[-1], True))
+        print(self.relaxed_objective(res.x, self.args, self.endowments, self.relaxation_args[-1], True))
 
         self.result = {"res_trajectory": res_trajectory,
                        "lambdas": self.lambdas,
@@ -334,7 +335,7 @@ def various_plots(problem, result_relaxed, result_original, endowments, survival
 
     for a in axs.ravel():
         a.grid(alpha=0.3)
-    fig.suptitle("Relaxation with the original code: stressed economy", fontsize=14)
+    fig.suptitle("Relaxation: stressed economy", fontsize=14)
     fig.savefig("relaxation_dashboard.png", dpi=150); plt.close(fig)
 
     # Feasible case + feasibility ratio of the three scenarios
