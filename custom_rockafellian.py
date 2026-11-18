@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import matplotlib
+matplotlib.use('Agg')
+import matplotlib.pyplot as plt
 import numpy as np
 from scipy.optimize import minimize, Bounds, LinearConstraint
 
@@ -63,18 +65,6 @@ class Problem():
         self.constraints = []
         self.constraints.append(linear_constraint)
 
-    def _set_utilities(self, utilities):
-        """
-        Set the Utility instances corresponding to the entered params.
-        """
-        pass
-
-    def _excess_demand(self):
-        pass
-
-    def _excess_demand_price(self):
-        pass
-
     def solve_problem(self):
         res = minimize(self.objective, self.endowments, args = self.args,
                        method = "trust-constr", bounds = self.survival_bounds,
@@ -82,37 +72,10 @@ class Problem():
         print(res.x)
         print(res.success, res.message)
         print(self.objective(res.x, self.args, True))
+        return res
 
-    # def add_relaxation(self):
-    #     matrix = np.zeros((self.goods, self.agents*self.goods))
-    #     for l in range(self.goods):
-    #         matrix[l][l::self.agents] = 1
-    #     amount = self.goods*[0]
-    #     for l in range(self.goods):
-    #         amount[l] = sum(self.endowments[l::self.goods])
-    #     lb = amount
-    #     ub = amount
-    #     print(matrix)
-    #     print(amount)
-    #     linear_constraint = LinearConstraint(matrix, lb, ub)
+    def sum_non_linear_penalized(self, endowments, coeficients, survival_floor, penalty, verbose = False):
         
-    #     self.relaxed_constraints = []
-    #     self.relaxed_constraints.append(linear_constraint)
-
-    def solve_relaxation(self, endowments, coeficients, survival_floor, penalty, verbose = False):
-        # matrix = np.zeros((self.goods, self.agents*self.goods))
-        # for l in range(self.goods):
-        #     matrix[l][l::self.agents] = 1
-        # amount = self.goods*[0]
-        # for l in range(self.goods):
-        #     amount[l] = sum(endowments[l::self.goods])
-        # amount = np.array(amount)
-
-        # account = matrix @ amount
-        # account = sum(account)
-        # if account <= self.v:
-        #     pass
-
         v = np.linalg.norm(endowments - survival_floor)
         total_penalty = (penalty/2)*v
 
@@ -133,10 +96,10 @@ class Problem():
         iteration = 0
         tol = 10**(-7)
         not_stationary = True
-        self.objective = self.solve_relaxation
+        self.objective = self.sum_non_linear_penalized
 
-        def get_z(x):
-            return sum(x - self.survival_floor)
+        def get_v(x):
+            return sum(x - self.endowments)
         
         res_trajectory = []
         v_trajectory = []
@@ -145,7 +108,7 @@ class Problem():
             res = minimize(self.objective, self.endowments, args = self.relaxation_args,
                             method = "trust-constr", bounds = self.survival_bounds)
 
-            v_trajectory.append(get_z(res.x))
+            v_trajectory.append(get_v(res.x))
             
             if iteration > 0:
                 advance = np.linalg.norm(res.x - res_trajectory[-1].x)
@@ -167,7 +130,7 @@ class Problem():
                        "v_trajectory": v_trajectory}
 
         
-            
+
 
 
 if __name__ == "__main__":
@@ -180,19 +143,37 @@ if __name__ == "__main__":
     survival_floor = 2*2*[3]
     satiation_ceiling = 2*2*[30]
 
-    """ Solving feasible problem """
-    endowments = [5, 1, 1, 5]
-    problem.set_variables(survival_floor, satiation_ceiling, endowments)
-    problem.add_linear_constraints()
-    problem.solve_problem()
+    # """ Solving feasible problem """
+    # endowments = [5, 2, 2, 5]
+    # problem.set_variables(survival_floor, satiation_ceiling, endowments)
+    # problem.add_linear_constraints()
+    # res = problem.solve_problem()
+    # ideal = [4, 3, 3, 4]
+    # print("Obtained: ", problem.sum_non_linear(res.x, args))
+    # print("Best: ", problem.sum_non_linear(ideal, args))
 
-    """ Reaching unfeasability due to initial endowments """
-    endowments = [5, 0.5, 0.5, 5]
-    problem.set_variables(survival_floor, satiation_ceiling, endowments)
-    problem.add_linear_constraints()
-    problem.solve_problem()
+    # """ Reaching unfeasability due to initial endowments """
+    # endowments = [5, 0.5, 0.5, 5]
+    # problem.set_variables(survival_floor, satiation_ceiling, endowments)
+    # problem.add_linear_constraints()
+    # problem.solve_problem()
 
     """ Finding v for increasing penalty weigths """
+    args = ([[[1, 1], [-1/8, -8]], [[-1/8, -8], [1, 1]]])
+    survival_floor = 2*2*[0.3]
+    satiation_ceiling = 2*2*[3]
+    problem = Problem(2, 2, args)
+    endowments = [0.5, 0.05, 0.05, 0.5]
+    problem.set_variables(survival_floor, satiation_ceiling, endowments)
     problem.run_relaxation()
     result = problem.result
-    print(f"Em {result["iterations"]}, {result["v_trajectory"][-1]} was obtained.")
+    print(f"Em {result['iterations']}, {result['v_trajectory'][-1]} was obtained.")
+
+    plt.plot(result["lambdas"][:result["iterations"]], result["v_trajectory"])
+    plt.xlabel("Penalty weight")
+    plt.ylabel("v")
+    plt.xscale("log")
+    plt.title("Penalty weight relaxation trajectory")
+    plt.savefig("plot.png")
+
+    
